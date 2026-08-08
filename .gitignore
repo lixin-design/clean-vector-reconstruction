@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+
+# Local / temporary
+*.tmp
+*.temp
+*.bak
+*.log
+.cache/
+tmp/
+temp/
+
+# Generated review artifacts
+*-review-copy.ai
+
+# Secrets / local environment
+.env
+.env.*
+!.env.example

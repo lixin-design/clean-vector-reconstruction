@@ -1,0 +1,7 @@
+interface:
+  display_name: "Clean Vector Reconstruction"
+  short_description: "Rebuild editable SVG with boundary evidence"
+  default_prompt: "Use $clean-vector-reconstruction to rebuild this supported raster illustration as clean, editable layered and plain SVG files with semantic, spatial, and reference-grounded boundary evidence."
+
+policy:
+  allow_implicit_invocation: true
