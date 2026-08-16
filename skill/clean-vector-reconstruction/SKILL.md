@@ -46,47 +46,23 @@ Read [reconstruction-modes.md](references/reconstruction-modes.md) when selectin
 Document:
 
 - canvas dimensions, aspect ratio, color mode, alpha, and SVG `viewBox`;
-- a scene complexity profile with `low`, `medium`, or `high` semantic density; this classification does not create a new reconstruction mode;
 - semantic regions, major objects, gradients, lines, repeated elements, and occlusion order;
-- 3–8 critical regions in a critical-region inventory;
-- whether reference-grounded boundary validation is applicable, why, its critical boundary regions, and its limitations;
-- required object families per region, exact repeated-detail counts or justified bounded ranges, and the expected minimum semantic completeness;
-- mandatory details, optional simplifications, expected full-canvas coverage, and whether reference transparency is intentional;
-- each critical region's distinctive local motifs, critical contours, landmarks, and representation semantics;
 - key landmarks such as major divisions, intersections, centers, endpoints, baselines, and bounding boxes;
 - shared horizontal/vertical boundaries and coordinates;
-- a case-authored spatial landmark inventory with named coordinates, roles, tolerances, and mandatory status;
-- relational constraints for alignment, ordering, offsets, attachment, overlap, containment, clipping, and shared baselines;
-- perspective-aware planar groups with boundary anchors, dominant directions, child orientation, and visible scale progression;
-- ordered start/end/turning/intersection/clip landmarks for every critical contour;
 - whether repeated elements are exact, mirrored, scaled, rotated, or intentionally varied;
-- one primary mode plus any justified region-specific construction strategies;
 - proposed short English group IDs;
 - estimated object/path complexity.
 
 Read [reconstruction-rules.md](references/reconstruction-rules.md) before constructing geometry, curves, gradients, repeated elements, shared boundaries, or key landmarks.
-Read [local-fidelity.md](references/local-fidelity.md) before selecting critical regions, recording representation semantics, choosing region-specific strategies, or judging local differences.
-Read [complex-scene-retention.md](references/complex-scene-retention.md) before simplifying a medium/high-density scene, defining required families, auditing repeated-detail retention, checking coverage, or declaring automatic readiness.
-Read [spatial-fidelity.md](references/spatial-fidelity.md) before placing major regions, authoring geometry constraints, constructing repeated elements on a plane, rebuilding critical contours, or declaring spatial readiness.
-Read [reference-grounded-validation.md](references/reference-grounded-validation.md) when direct boundary fidelity matters, clean color-block edges are available, critical contours/planes/layout are important, or a regression needs evidence independent of authored geometry.
 
 ### 3. Reconstruct semantically
-
-Construct in geometry-first order: canvas/global layout, major region bounds, planes/shared axes, major landmarks, repeated elements on planes, critical contours, local motifs, then decorative details. This order does not override semantic completeness or representation semantics.
 
 - Use `<rect>`, `<circle>`, `<ellipse>`, `<line>`, and simple paths for regular geometry.
 - Represent each meaningful color block with one object or a few necessary objects.
 - Rebuild free curves with few smooth anchors while preserving distinctive asymmetry.
 - Use native `<linearGradient>` or `<radialGradient>` elements for real gradients.
-- Preserve important fill, stroke, fill-plus-stroke, gradient, and transparency semantics unless a documented reason requires a change.
-- Reconstruct distinctive local motifs from their recorded relationships; never replace them with a generic motif merely because the substitute is cleaner or easier.
 - Give adjacent shapes intended to meet the same boundary the same coordinate when practical.
 - Preserve intentional variation; do not regularize merely to make spacing mathematically uniform.
-- Retain every mandatory family and keep required repeated counts within their authored ranges. Never delete visible repeated details solely to reduce object count or replace distinct members with one generic template.
-- Anchor local motifs to authored spatial landmarks. Reuse shared coordinates and plane-relative construction values for aligned or perspective-related objects.
-- Do not rebuild children on a visibly oblique plane as independent axis-aligned objects. Preserve their shared orientation, relative scaling, ordering, and spacing system.
-- Give validation-bearing semantic groups, planes, and landmark-bearing objects stable public-safe SVG IDs or data attributes when appropriate. Do not tag every minor path or expose private identifiers.
-- Cover the full canvas when the reference is declared opaque; prevent transparent seams between intended adjoining background and foreground shapes.
 - Maintain correct occlusion and independently selectable major objects.
 - Use short, readable English group names, preferably one to three words.
 
@@ -104,10 +80,6 @@ Create at least:
 - an equal-opacity overlay;
 - a difference image;
 - automatic reports and retained case-specific scripts.
-- reference-grounded boundary maps, mismatch visualizations, resolved configuration, and global/region metrics when applicable.
-
-Retain the scene complexity profile and a validated case-authored required object-family JSON inventory with the versioned evidence.
-Retain a validated case-authored geometry inventory and a reconstruction-side geometry report mapping expected names to actual coordinates, relations, plane metadata, and contour landmarks.
 
 Use a new version identifier for every revision. Keep the reference, prompt, prior versions, reports, human review, conclusion, and revision notes.
 
@@ -118,39 +90,24 @@ Use [case-brief-template.md](assets/templates/case-brief-template.md) to define 
 For each final SVG:
 
 1. Run [`scripts/audit_svg.py`](scripts/audit_svg.py) with Python for every final SVG.
-2. Record the case-authored transparency intent and inspect the structural background-coverage result. Stop and fix raster content, unsafe external resources, an invalid root, or an unreliable canvas. Structural coverage is heuristic and never replaces rendered alpha evidence.
-3. When gradients matter, audit defined, used, unused, missing, and duplicate gradient IDs. Actual use still does not prove gradient fidelity.
-4. Validate the case-authored inventory with [`scripts/validate_object_inventory.py`](scripts/validate_object_inventory.py). Do not infer families from images. Missing required families or out-of-range repeated counts block automatic readiness.
-5. Validate the authored spatial contract with [`scripts/validate_geometry_inventory.py`](scripts/validate_geometry_inventory.py), then pass the reconstruction-side report with `--actual`. Missing or out-of-tolerance mandatory landmarks, failed relations, wrong-plane child metadata, or failed critical-contour landmarks block spatial readiness. The validator does not infer geometry from artwork or SVG.
-6. Run [`scripts/render_compare.py`](scripts/render_compare.py) only after the structural audit passes and when a reference and local renderer are available. Use `--regions-file` for critical regions and `--check-alpha-coverage`; add `--expected-opaque-reference` for a fully opaque reference.
-7. When reference-grounded validation is applicable, run [`scripts/compare_boundaries.py`](scripts/compare_boundaries.py) on the normalized reference and candidate rasters with one pre-authored config. Resolve thresholds from the reference once, apply the same resolved config to both inputs, retain global and critical-region bidirectional distances plus precision/recall/F1, and never introduce a universal F1 pass threshold.
-8. Stop and fix a material SVG/reference aspect-ratio mismatch, unexpected transparency above the declared threshold, or failed expected background/foreground coverage. An explicitly allowed diagnostic mismatch may be distorted and must not be used as normal positional-fidelity evidence.
-9. Confirm both SVG variants parse, render at correct dimensions, remain visually consistent, preserve required families, agree on alpha coverage, and map their validation-bearing geometry to the same authored contract. Never use forced stretching to manufacture apparent alignment.
-10. Validate the whole composition and every critical region. Global metrics, successful structure, or a lower object count cannot excuse a missing family, failed landmark/relation, failed critical region, or multi-region detail deletion.
-11. Classify visible differences and interpret object-count decreases conservatively. Do not treat every bright difference-map pixel as equally serious.
-12. Treat structural heuristics, SSIM, PSNR, MAE, RMSE, boundary distances, boundary precision/recall/F1, and successful rendering only as diagnostic evidence—not proof of Illustrator editability, semantic correctness, visual fidelity, or regression improvement.
-13. Use `--path-mode relative` or `basename` and inspect reports before sharing or publication.
+2. Stop and fix the SVG if the audit finds raster content, unsafe external resources, an invalid root, or an unreliable canvas. Do not use rendering to legitimize a failed audit.
+3. Run [`scripts/render_compare.py`](scripts/render_compare.py) only after the audit passes and when a reference and local renderer are available.
+4. Stop and fix a material SVG/reference aspect-ratio mismatch. An explicitly allowed diagnostic mismatch may be distorted and must not be used as normal positional-fidelity evidence.
+5. Confirm both SVG variants parse, render at correct dimensions, and remain visually consistent. Never use forced stretching to manufacture apparent alignment.
+6. Classify visible differences; do not treat every bright difference-map pixel as equally serious.
+7. Treat structural heuristics, SSIM, PSNR, MAE, RMSE, and successful rendering only as diagnostic evidence—not proof of Illustrator editability or design quality.
+8. Use `--path-mode relative` or `basename` and inspect reports before sharing or publication.
 
 Read [validation-and-grading.md](references/validation-and-grading.md) before auditing, grading, revising, or declaring completion.
 
-### 6. Run a bounded targeted correction loop
-
-When boundary evidence identifies material local mismatches, run at most two correction iterations. Keep the renderer, dimensions, downsampling, regions, method config, resolved thresholds, and tolerances unchanged. Correct only the largest 3–5 critical mismatch regions, retain every iteration, and report each region as improved, regressed, unchanged, or mixed.
-
-Never add dense trace fragments or unsupported decoration, delete required detail to improve precision, or claim success from one direction, tolerance, percentile, or F1 alone. Recheck semantic completeness, internal geometry, path cleanliness, boundary counts, and mismatch maps after every correction.
-
-### 7. Hand off for human review
+### 6. Hand off for human review
 
 - Leave Adobe Illustrator review to a real user or reviewer.
 - Never fabricate scores, editing behavior, compatibility, or a final human grade.
 - Provide [human-review-template.md](assets/templates/human-review-template.md) for the reviewer.
-- Ask the reviewer whether mismatch maps correspond to visible problems, metric-guided corrections improved the drawing, or score gains damaged path cleanliness.
-- Report `Ready for human Illustrator regression review` only after structural, semantic-completeness, coverage/alpha, gradient-reference, and mandatory spatial-geometry gates pass. Missing required families, blocking transparency gaps, multi-region detail deletion, or unresolved/failed mandatory geometry prevent this status.
-- If mandatory authored geometry fails, report exactly: `Automatic regression blocked — spatial fidelity gate failed`.
+- Report the result as ready for human review until completed evidence exists.
 
-After real review, assign Pass, Conditional pass, Conditional pass — borderline, or Fail using both automatic and human evidence. Do not call multi-region deviations minor or easy to fix without explicit human evidence. Document every claimed easy-to-fix difference.
-
-After revising this Skill, run its validation, synthetic coverage/inventory fixtures, and safety tests. Then perform separately versioned complex-scene regression tests before claiming the revision improves reconstruction quality.
+After real review, assign Pass, Conditional pass, or Fail using both automatic and human evidence. Document every easy-to-fix difference; do not silently ignore it.
 
 ## Report completion
 
@@ -159,18 +116,11 @@ Report:
 - selected mode and rationale;
 - files created and their versions;
 - element/object/path and gradient counts;
-- critical regions and region-level evidence;
-- scene complexity profile, required/reconstructed/missing object families, and repeated-detail retention;
-- landmark, relation, plane-group, repeated-layout, and critical-contour validation summaries plus every mandatory geometry failure;
-- boundary-validation applicability, normalization, resolved-config integrity, global/region bidirectional metrics, precision/recall/F1, top mismatches, and correction-iteration results;
-- reference opacity intent, full-canvas background/foreground coverage, transparent-pixel counts, unexpected-gap regions, and automatic-readiness blockers;
-- defined, used, unused, missing, and duplicate gradient IDs when gradients matter;
 - raster-reference count;
 - render and dimension results;
 - warning-threshold status;
 - classified known differences and limitations;
 - whether automatic checks passed;
-- whether geometry readiness was evaluated and blocked;
 - whether the work is only ready for human review or has a real human result.
 
-Distinguish structural pass, semantic completeness, internal geometry consistency, reference-grounded boundary evidence, and human visual review. Do not claim full success when required checks fail, signals disagree without review, human review is missing, or the input exceeds validated scope.
+Do not claim full success when required checks fail, human review is missing, or the input exceeds validated scope.

@@ -1,25 +1,9 @@
-# Public Examples
+# Examples
 
-This directory contains curated public examples for **Clean Vector Reconstruction**.
+These examples show the kinds of flat and semi-flat illustrations the workflow is currently best suited to. Each folder contains a reference image, an editable SVG reconstruction, a rendered preview, and a short provenance note.
 
-Only examples with confirmed publication rights are included.
-
-## Included examples
-
-### Geometric Harvest
-
-A user-created original illustration used to demonstrate the `geometric-flat` workflow.
-
-Files:
-
-- [`reference/reference.png`](geometric-harvest/reference/reference.png) — original raster reference
-- [`output/layered.svg`](geometric-harvest/output/layered.svg) — layered editable SVG
-- [`output/plain.svg`](geometric-harvest/output/plain.svg) — plain compatibility SVG
-- [`output/preview.png`](geometric-harvest/output/preview.png) — Adobe Illustrator-exported preview of the final SVG
-- [`notes.md`](geometric-harvest/notes.md) — example notes and rights information
-
-## Rights
-
-The repository's MIT License applies to the project-authored software and documentation unless otherwise stated.
-
-Reference artwork and example visual outputs may have separate rights terms. See the `notes.md` file inside each example before reusing or redistributing those visual assets.
+- [Geometric Harvest](geometric-harvest/) — Geometric colour blocks, simple gradients, and shared edges make the construction easy to follow.
+- [Still Life](still-life/) — Separate objects leave room for controlled organic curves without losing the scene's structure.
+- [Winter Street](winter-street/) — Buildings, roadway, lights, and snow layers form a readable set of structured objects.
+- [Kitchen Interior](kitchen-interior/) — Cabinets, shelving, appliances, and repeated items give the room a stable scaffold.
+- [Market Shelf](market-shelf/) — Shelves, containers, product groups, and crates show how repeated elements can be organised as a system.

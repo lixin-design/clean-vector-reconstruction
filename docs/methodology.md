@@ -1,62 +1,19 @@
 # Methodology
 
-Clean Vector Reconstruction is built around one practical target:
+Clean Vector Reconstruction rebuilds suitable raster illustrations as editable SVG geometry. The work starts with the canvas and the major relationships in the composition: large regions, shared boundaries, spacing, overlap, and the underlying spatial scaffold.
 
-> Produce a clean semantic SVG whose major structure is already correct, so Adobe Illustrator is used for refinement rather than reconstruction.
+Meaningful objects are then built with native SVG primitives where they fit and concise Bézier paths where they do not. Fills, strokes, gradients, and readable groups keep the drawing understandable as well as renderable. Adjacent shapes that share an edge should use a shared coordinate when practical.
 
-## Structure-first reconstruction
+## Two working modes
 
-The workflow prioritizes:
+`geometric-flat` is a practical fit for aligned blocks, repeated units, regular geometry, and broad colour regions. `clean-flat` is for controlled free curves and mixed structured scenes. Both modes aim for semantic, editable construction rather than a trace made from many small fragments.
 
-1. global composition
-2. major proportions
-3. perspective / plane relationships
-4. relative placement and spacing
-5. occlusion and attachment
-6. major contour envelopes
-7. semantic object completeness
-8. fill / stroke / gradient semantics
-9. local motifs
-10. micro-details
+## Choosing a reference
 
-Higher-priority structure should never be sacrificed for lower-priority similarity metrics.
+Clean colour-block compositions, still lifes, structured interiors, architecture, and repeated systems are often good candidates. Visual complexity alone is not the dividing line: a detailed scene can still work when its parts separate cleanly, its boundaries are legible, and its spatial or repeated structure is stable.
 
-## Geometry skeleton
+## Outputs and review
 
-Before decorative detail, the reconstruction should establish:
+The workflow can produce a layered SVG for useful editing groups and a plain SVG for simpler compatibility. Previews support inspection. Structural checks and rendering help identify technical problems, but final judgment remains a human visual review of the composition, relationships, and remaining edit work.
 
-- canvas
-- major object envelopes
-- major planes
-- shared baselines
-- important centers / peaks / anchors
-- major foreground/background contours
-- major overlap relationships
-
-This skeleton is rendered and checked before detail work begins.
-
-## Semantic reconstruction
-
-The objective is not raster tracing.
-
-Objects should remain meaningful and editable rather than becoming thousands of tiny trace fragments.
-
-## Local fidelity
-
-After structure is locked, local refinement may target distinctive silhouettes, hair, flowers, snow lines, decorative arcs, repeated objects, and local contour differences.
-
-## Illustrator-ready output
-
-The reconstruction is considered successful when major geometry does not need to be rebuilt.
-
-Remaining work should be limited to local Illustrator operations such as anchor adjustment, Bézier refinement, object repositioning, fill/stroke changes, and native gradient-stop tuning.
-
-## Reference-grounded validation
-
-Internal geometry constraints can remain self-consistent while drifting away from the reference.
-
-For suitable flat illustrations, the Skill therefore compares the rendered SVG directly with the raster reference.
-
-Reference-grounded validation is used to locate mismatch, not to turn the SVG into a dense trace.
-
-See [Validation](validation.md).
+See [Validation](validation.md) for the available checks and [Limitations](limitations.md) for the boundaries of the workflow.

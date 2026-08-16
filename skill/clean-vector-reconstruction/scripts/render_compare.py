@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-from collections import deque
 import importlib.util
 import json
 import math
@@ -23,9 +22,6 @@ DIMENSION = re.compile(
     re.IGNORECASE,
 )
 URL_REFERENCE = re.compile(r"url\(\s*['\"]?([^)'\"\s]+)", re.IGNORECASE)
-REGION_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
-MAX_REGIONS = 12
-MAX_REPORTED_ALPHA_REGIONS = 256
 
 
 def local(tag: str) -> str:
@@ -138,252 +134,18 @@ def validate_prefix(prefix: str) -> str:
     return prefix
 
 
-def validate_region_name(name: object) -> str:
-    if not isinstance(name, str) or not REGION_NAME.fullmatch(name):
-        raise ValueError("region names must use 1–64 ASCII letters, digits, hyphens, or underscores and start with a letter or digit")
-    if name in {".", ".."} or ".." in name or "/" in name or "\\" in name or ":" in name:
-        raise ValueError("region name contains path traversal or an unsafe filename character")
-    return name
-
-
-def load_regions(path: Path) -> tuple[str, list[dict[str, object]]]:
-    if not path.is_file():
-        raise FileNotFoundError("regions file not found")
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"malformed regions JSON: {exc.msg}") from exc
-    if not isinstance(payload, dict):
-        raise ValueError("regions JSON must be an object")
-    mode = payload.get("coordinateMode")
-    if mode not in {"normalized", "pixels"}:
-        raise ValueError("coordinateMode must be 'normalized' or 'pixels'")
-    raw_regions = payload.get("regions")
-    if not isinstance(raw_regions, list) or not raw_regions:
-        raise ValueError("regions must be a non-empty list")
-    if len(raw_regions) > MAX_REGIONS:
-        raise ValueError(f"regions list exceeds maximum of {MAX_REGIONS}")
-
-    result: list[dict[str, object]] = []
-    seen: set[str] = set()
-    for raw in raw_regions:
-        if not isinstance(raw, dict):
-            raise ValueError("each region must be an object")
-        name = validate_region_name(raw.get("name"))
-        folded = name.casefold()
-        if folded in seen:
-            raise ValueError(f"duplicate region name: {name}")
-        seen.add(folded)
-        values = {key: raw.get(key) for key in ("x", "y", "width", "height")}
-        if mode == "pixels":
-            if any(isinstance(value, bool) or not isinstance(value, int) for value in values.values()):
-                raise ValueError(f"pixel coordinates for region '{name}' must be integers")
-        else:
-            if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values.values()):
-                raise ValueError(f"normalized coordinates for region '{name}' must be numbers")
-            if any(not math.isfinite(float(value)) for value in values.values()):
-                raise ValueError(f"normalized coordinates for region '{name}' must be finite")
-        x, y = float(values["x"]), float(values["y"])
-        region_width, region_height = float(values["width"]), float(values["height"])
-        upper_x = 1.0 if mode == "normalized" else math.inf
-        upper_y = 1.0 if mode == "normalized" else math.inf
-        if x < 0 or y < 0:
-            raise ValueError(f"region '{name}' has negative coordinates")
-        if region_width <= 0 or region_height <= 0:
-            raise ValueError(f"region '{name}' has zero or negative size")
-        if x + region_width > upper_x or y + region_height > upper_y:
-            raise ValueError(f"region '{name}' is out of normalized bounds")
-        result.append({"name": name, "x": values["x"], "y": values["y"], "width": values["width"], "height": values["height"]})
-    return mode, result
-
-
-def region_boxes(mode: str, regions: list[dict[str, object]], image_width: int, image_height: int) -> list[dict[str, object]]:
-    boxes: list[dict[str, object]] = []
-    for region in regions:
-        name = str(region["name"])
-        if mode == "pixels":
-            left, top = int(region["x"]), int(region["y"])
-            right = left + int(region["width"])
-            bottom = top + int(region["height"])
-        else:
-            left = math.floor(float(region["x"]) * image_width)
-            top = math.floor(float(region["y"]) * image_height)
-            right = math.ceil((float(region["x"]) + float(region["width"])) * image_width)
-            bottom = math.ceil((float(region["y"]) + float(region["height"])) * image_height)
-        if left < 0 or top < 0 or right > image_width or bottom > image_height:
-            raise ValueError(f"region '{name}' is out of image bounds")
-        if right <= left or bottom <= top:
-            raise ValueError(f"region '{name}' becomes empty at image dimensions")
-        boxes.append({**region, "pixelBox": [left, top, right, bottom]})
-    return boxes
-
-
-def output_paths(
-    output_dir: Path,
-    prefix: str,
-    region_names: list[str] | None = None,
-    alpha_coverage: bool = False,
-) -> dict[str, Path]:
+def output_paths(output_dir: Path, prefix: str) -> dict[str, Path]:
     outputs = {
         "preview": (output_dir / f"{prefix}-preview.png").resolve(),
         "overlay": (output_dir / f"{prefix}-overlay.png").resolve(),
         "difference": (output_dir / f"{prefix}-difference.png").resolve(),
     }
-    if region_names:
-        outputs["regionsSummary"] = (output_dir / f"{prefix}-regions.json").resolve()
-        for name in region_names:
-            for kind in ("reference", "preview", "overlay", "difference"):
-                outputs[f"region:{name}:{kind}"] = (output_dir / f"{prefix}-region-{name}-{kind}.png").resolve()
-    if alpha_coverage:
-        outputs["alphaCoverage"] = (output_dir / f"{prefix}-alpha-coverage.json").resolve()
     for path in outputs.values():
         try:
             path.relative_to(output_dir)
         except ValueError as exc:
             raise ValueError("constructed output path escapes --output-dir") from exc
     return outputs
-
-
-def validate_same_dimensions(actual: tuple[int, int], expected: tuple[int, int]) -> None:
-    if actual != expected:
-        raise RuntimeError(f"renderer returned {actual}, expected {expected}")
-
-
-def connected_alpha_regions(mask: bytearray, preview_alpha: bytes, width: int, height: int, threshold: int) -> dict[str, object]:
-    if len(mask) != width * height or len(preview_alpha) != width * height:
-        raise ValueError("alpha mask dimensions are malformed")
-    regions: list[dict[str, object]] = []
-    region_count = 0
-    total_pixels = width * height
-    for start in range(total_pixels):
-        if mask[start] == 0:
-            continue
-        region_count += 1
-        mask[start] = 0
-        queue: deque[int] = deque([start])
-        count = 0
-        min_x = max_x = start % width
-        min_y = max_y = start // width
-        touches_edge = False
-        touches_internal_opaque = False
-        while queue:
-            index = queue.popleft()
-            y, x = divmod(index, width)
-            count += 1
-            min_x, max_x = min(min_x, x), max(max_x, x)
-            min_y, max_y = min(min_y, y), max(max_y, y)
-            if x == 0 or y == 0 or x == width - 1 or y == height - 1:
-                touches_edge = True
-            for neighbor in (
-                index - 1 if x > 0 else None,
-                index + 1 if x + 1 < width else None,
-                index - width if y > 0 else None,
-                index + width if y + 1 < height else None,
-            ):
-                if neighbor is None:
-                    continue
-                if mask[neighbor]:
-                    mask[neighbor] = 0
-                    queue.append(neighbor)
-                elif preview_alpha[neighbor] > threshold:
-                    touches_internal_opaque = True
-        if len(regions) < MAX_REPORTED_ALPHA_REGIONS:
-            regions.append({
-                "pixelCount": count,
-                "boundingBox": [min_x, min_y, max_x + 1, max_y + 1],
-                "canvasPercentage": round(count * 100.0 / total_pixels, 8),
-                "touchesCanvasEdge": touches_edge,
-                "touchesInternalForegroundBoundary": touches_internal_opaque,
-                "touchesOnlyCanvasEdge": touches_edge and not touches_internal_opaque,
-            })
-    return {
-        "regionCount": region_count,
-        "reportedRegionCount": len(regions),
-        "regionsTruncated": region_count > len(regions),
-        "regions": regions,
-    }
-
-
-def audit_alpha_coverage(
-    reference_rgba,
-    preview_rgba,
-    *,
-    expected_opaque_reference: bool,
-    alpha_threshold: int,
-    max_unexpected_transparent_pixels: int,
-) -> dict[str, object]:
-    if reference_rgba.mode != "RGBA" or preview_rgba.mode != "RGBA":
-        raise ValueError("alpha coverage inputs must be RGBA images")
-    validate_same_dimensions(preview_rgba.size, reference_rgba.size)
-    if not 0 <= alpha_threshold <= 254:
-        raise ValueError("alpha threshold must be between 0 and 254")
-    if max_unexpected_transparent_pixels < 0:
-        raise ValueError("maximum unexpected transparent pixels must be nonnegative")
-
-    width, height = reference_rgba.size
-    total_pixels = width * height
-    reference_alpha = reference_rgba.getchannel("A").tobytes()
-    preview_alpha = preview_rgba.getchannel("A").tobytes()
-    reference_transparent = sum(1 for value in reference_alpha if value <= alpha_threshold)
-    preview_transparent = sum(1 for value in preview_alpha if value <= alpha_threshold)
-    unexpected_mask = bytearray(
-        255 if ref_value > alpha_threshold and preview_value <= alpha_threshold else 0
-        for ref_value, preview_value in zip(reference_alpha, preview_alpha)
-    )
-    preview_mask = bytearray(255 if value <= alpha_threshold else 0 for value in preview_alpha)
-    unexpected_count = sum(1 for value in unexpected_mask if value)
-    expected_transparent_count = sum(
-        1
-        for ref_value, preview_value in zip(reference_alpha, preview_alpha)
-        if ref_value <= alpha_threshold and preview_value <= alpha_threshold
-    )
-    unexpected_regions = connected_alpha_regions(
-        unexpected_mask, preview_alpha, width, height, alpha_threshold
-    )
-    preview_regions = connected_alpha_regions(
-        preview_mask, preview_alpha, width, height, alpha_threshold
-    )
-    blockers: list[str] = []
-    if expected_opaque_reference and reference_transparent > max_unexpected_transparent_pixels:
-        blockers.append("reference-declared-opaque-but-contains-transparency")
-    if unexpected_count > max_unexpected_transparent_pixels:
-        blockers.append("unexpected-rendered-transparency-above-threshold")
-    regions = unexpected_regions["regions"]
-    all_preview_regions_touch_edge = bool(preview_regions["regionCount"]) and all(
-        item["touchesCanvasEdge"] for item in preview_regions["regions"]
-    ) and not preview_regions["regionsTruncated"]
-    return {
-        "enabled": True,
-        "alphaThreshold": alpha_threshold,
-        "expectedOpaqueReference": expected_opaque_reference,
-        "referenceOpacityMatchesExpectation": not expected_opaque_reference or reference_transparent == 0,
-        "maxUnexpectedTransparentPixels": max_unexpected_transparent_pixels,
-        "referenceTransparentPixelCount": reference_transparent,
-        "renderedSvgTransparentPixelCount": preview_transparent,
-        "expectedTransparentPixelCount": expected_transparent_count,
-        "unexpectedTransparentPixelCount": unexpected_count,
-        "affectedCanvasPercentage": round(unexpected_count * 100.0 / total_pixels, 8),
-        "unexpectedTransparentBoundingBoxes": [item["boundingBox"] for item in regions],
-        "unexpectedTransparentRegions": unexpected_regions,
-        "unexpectedGapsTouchInternalForegroundBoundaries": any(
-            item["touchesInternalForegroundBoundary"] for item in regions
-        ),
-        "unexpectedGapsTouchCanvasEdge": any(item["touchesCanvasEdge"] for item in regions),
-        "unexpectedGapsTouchOnlyCanvasEdge": bool(regions) and all(
-            item["touchesOnlyCanvasEdge"] for item in regions
-        ) and not unexpected_regions["regionsTruncated"],
-        "transparencyTouchesOnlyIntendedOuterCanvasBoundary": (
-            preview_transparent > 0 and unexpected_count == 0 and all_preview_regions_touch_edge
-        ),
-        "automaticReadinessBlocked": bool(blockers),
-        "blockingReasons": blockers,
-        "status": "fail" if blockers else "pass",
-        "notes": [
-            "Rendered alpha is the source of truth; SVG structure alone cannot prove complete coverage.",
-            "Unexpected transparency means the rendered SVG is transparent where the reference is opaque.",
-            "Foreground-boundary contact is a four-neighbor alpha adjacency heuristic, not object recognition.",
-        ],
-    }
 
 
 def command_version(command: list[str]) -> str | None:
@@ -490,8 +252,7 @@ def commit_outputs(staged: dict[str, Path], final: dict[str, Path], overwrite: b
         if overwrite:
             for name, target in final.items():
                 if target.exists():
-                    safe_name = re.sub(r"[^A-Za-z0-9_-]", "_", name)
-                    backup = temp_dir / f"backup-{safe_name}.bak"
+                    backup = temp_dir / f"backup-{name}.png"
                     os.replace(target, backup)
                     backups[name] = backup
         for name, target in final.items():
@@ -510,40 +271,17 @@ def commit_outputs(staged: dict[str, Path], final: dict[str, Path], overwrite: b
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Render an audited SVG and atomically create global plus optional bounded region diagnostics.")
+    parser = argparse.ArgumentParser(description="Render an audited SVG at reference dimensions and atomically create preview, overlay, and difference PNGs.")
     parser.add_argument("reference", type=Path, help="Reference raster image.")
     parser.add_argument("svg", type=Path, help="SVG to render; it is never modified.")
     parser.add_argument("--output-dir", type=Path, required=True, help="Directory for diagnostic PNGs.")
     parser.add_argument("--prefix", help="Safe single filename stem; defaults to the SVG stem.")
-    parser.add_argument("--regions-file", type=Path, help=f"Optional JSON containing up to {MAX_REGIONS} named normalized or integer-pixel regions.")
     parser.add_argument("--renderer", choices=["auto", "inkscape", "rsvg-convert", "cairosvg", "sharp", "magick"], default="auto")
     parser.add_argument("--node-executable", type=Path, help="Optional Node.js executable for the Sharp fallback.")
     parser.add_argument("--node-modules", type=Path, help="Optional node_modules directory containing Sharp.")
     parser.add_argument("--timeout", type=int, default=60, help="Renderer timeout in seconds.")
     parser.add_argument("--aspect-tolerance", type=float, default=0.01, help="Maximum relative SVG/reference aspect-ratio difference (default: 0.01).")
     parser.add_argument("--allow-aspect-mismatch", action="store_true", help="Explicitly allow a distorted diagnostic render; never normal fidelity evidence.")
-    parser.add_argument(
-        "--check-alpha-coverage",
-        action="store_true",
-        help="Write a machine-readable rendered-alpha coverage audit and block unexpected gaps.",
-    )
-    parser.add_argument(
-        "--expected-opaque-reference",
-        action="store_true",
-        help="Declare that the case brief expects a fully opaque reference; requires --check-alpha-coverage.",
-    )
-    parser.add_argument(
-        "--alpha-threshold",
-        type=int,
-        default=254,
-        help="Alpha values at or below this value count as transparent (0–254; default: 254).",
-    )
-    parser.add_argument(
-        "--max-unexpected-transparent-pixels",
-        type=int,
-        default=0,
-        help="Small explicit tolerance before unexpected transparency blocks readiness (default: 0).",
-    )
     parser.add_argument("--overwrite", action="store_true", help="Explicitly allow replacing an existing complete diagnostic set.")
     parser.add_argument("--format", choices=["markdown", "json"], default="markdown")
     parser.add_argument("--path-mode", choices=["basename", "relative", "absolute"], default="relative", help="Path display policy for reports.")
@@ -561,19 +299,13 @@ def main() -> int:
         raise ValueError("--timeout must be positive")
     if not math.isfinite(args.aspect_tolerance) or args.aspect_tolerance < 0:
         raise ValueError("--aspect-tolerance must be a finite non-negative number")
-    if args.expected_opaque_reference and not args.check_alpha_coverage:
-        raise ValueError("--expected-opaque-reference requires --check-alpha-coverage")
-    if not 0 <= args.alpha_threshold <= 254:
-        raise ValueError("--alpha-threshold must be between 0 and 254")
-    if args.max_unexpected_transparent_pixels < 0:
-        raise ValueError("--max-unexpected-transparent-pixels must be nonnegative")
 
     prefix = validate_prefix(args.prefix if args.prefix is not None else args.svg.stem)
     output_dir = args.output_dir.resolve()
-    coordinate_mode: str | None = None
-    regions: list[dict[str, object]] = []
-    if args.regions_file is not None:
-        coordinate_mode, regions = load_regions(args.regions_file.resolve())
+    outputs = output_paths(output_dir, prefix)
+    existing = [path.name for path in outputs.values() if path.exists()]
+    if existing and not args.overwrite:
+        raise FileExistsError("refusing to overwrite existing outputs: " + ", ".join(existing))
 
     svg_ratio, ratio_source, resource_audit = parse_svg_for_render(args.svg.resolve())
     Image, ImageChops = require_pillow()
@@ -582,16 +314,6 @@ def main() -> int:
     width, height = reference_rgba.size
     if width <= 0 or height <= 0:
         raise ValueError("reference has invalid dimensions")
-    bounded_regions = region_boxes(coordinate_mode, regions, width, height) if coordinate_mode else []
-    outputs = output_paths(
-        output_dir,
-        prefix,
-        [str(region["name"]) for region in bounded_regions],
-        args.check_alpha_coverage,
-    )
-    existing = [path.name for path in outputs.values() if path.exists()]
-    if existing and not args.overwrite:
-        raise FileExistsError("refusing to overwrite existing outputs: " + ", ".join(existing))
     reference_ratio = width / height
     relative_difference = abs(svg_ratio - reference_ratio) / reference_ratio
     mismatch = relative_difference > args.aspect_tolerance
@@ -612,84 +334,18 @@ def main() -> int:
             "overlay": temp_dir / "overlay.png",
             "difference": temp_dir / "difference.png",
         }
-        if bounded_regions:
-            staged["regionsSummary"] = temp_dir / "regions.json"
-            for region in bounded_regions:
-                name = str(region["name"])
-                for kind in ("reference", "preview", "overlay", "difference"):
-                    staged[f"region:{name}:{kind}"] = temp_dir / f"region-{name}-{kind}.png"
-        if args.check_alpha_coverage:
-            staged["alphaCoverage"] = temp_dir / "alpha-coverage.json"
         renderer_version = render_svg(renderer, executable, args.svg.resolve(), temporary_render, width, height, args.timeout, args.node_modules.resolve() if args.node_modules else None)
         with Image.open(temporary_render) as opened:
             preview_rgba = opened.convert("RGBA")
-        validate_same_dimensions(preview_rgba.size, (width, height))
-        alpha_coverage = (
-            audit_alpha_coverage(
-                reference_rgba,
-                preview_rgba,
-                expected_opaque_reference=args.expected_opaque_reference,
-                alpha_threshold=args.alpha_threshold,
-                max_unexpected_transparent_pixels=args.max_unexpected_transparent_pixels,
-            )
-            if args.check_alpha_coverage
-            else {"enabled": False, "automaticReadinessBlocked": False}
-        )
-        if args.check_alpha_coverage:
-            staged["alphaCoverage"].write_text(
-                json.dumps(alpha_coverage, indent=2, ensure_ascii=False) + "\n",
-                encoding="utf-8",
-            )
+        if preview_rgba.size != (width, height):
+            raise RuntimeError(f"renderer returned {preview_rgba.size}, expected {(width, height)}")
         preview_rgba.save(staged["preview"])
         reference_rgb = composite_white(reference_rgba, Image)
         preview_rgb = composite_white(preview_rgba, Image)
-        overlay = Image.blend(reference_rgb, preview_rgb, 0.5)
-        overlay.save(staged["overlay"])
+        Image.blend(reference_rgb, preview_rgb, 0.5).save(staged["overlay"])
         difference = ImageChops.difference(reference_rgb, preview_rgb)
         difference.save(staged["difference"])
         mae, rmse, maximum = difference_metrics(difference)
-        region_records: list[dict[str, object]] = []
-        for region in bounded_regions:
-            name = str(region["name"])
-            box = tuple(region["pixelBox"])
-            crops = {
-                "reference": reference_rgb.crop(box),
-                "preview": preview_rgb.crop(box),
-                "overlay": overlay.crop(box),
-                "difference": difference.crop(box),
-            }
-            for kind, crop in crops.items():
-                crop.save(staged[f"region:{name}:{kind}"])
-            region_mae, region_rmse, region_maximum = difference_metrics(crops["difference"])
-            region_records.append({
-                "name": name,
-                "requestedBounds": {key: region[key] for key in ("x", "y", "width", "height")},
-                "pixelBox": region["pixelBox"],
-                "dimensions": {"width": box[2] - box[0], "height": box[3] - box[1]},
-                "outputs": {
-                    kind: display_path(outputs[f"region:{name}:{kind}"], args.path_mode, cwd)
-                    for kind in ("reference", "preview", "overlay", "difference")
-                },
-                "metrics": {
-                    "maeRgb": round(region_mae, 4),
-                    "rmseRgb": round(region_rmse, 4),
-                    "maxChannelDifference": region_maximum,
-                },
-            })
-        if bounded_regions:
-            summary = {
-                "pathMode": args.path_mode,
-                "regionsFile": display_path(args.regions_file, args.path_mode, cwd),
-                "coordinateMode": coordinate_mode,
-                "imageDimensions": {"width": width, "height": height},
-                "regionCount": len(region_records),
-                "regions": region_records,
-                "notes": [
-                    "Region metrics are diagnostic and cannot override human review.",
-                    "Region crops inherit the reference image's privacy and publication status.",
-                ],
-            }
-            staged["regionsSummary"].write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         if not all(path.is_file() and path.stat().st_size > 0 for path in staged.values()):
             raise RuntimeError("diagnostic staging set is incomplete")
         commit_outputs(staged, outputs, args.overwrite, temp_dir)
@@ -714,14 +370,6 @@ def main() -> int:
         "rendererVersion": renderer_version,
         "outputs": {name: display_path(path, args.path_mode, cwd) for name, path in outputs.items()},
         "metrics": {"maeRgb": round(mae, 4), "rmseRgb": round(rmse, 4), "maxChannelDifference": maximum},
-        "regionDiagnostics": {
-            "enabled": bool(bounded_regions),
-            "coordinateMode": coordinate_mode,
-            "regionCount": len(region_records),
-            "summary": display_path(outputs["regionsSummary"], args.path_mode, cwd) if bounded_regions else None,
-            "regions": region_records,
-        },
-        "alphaCoverage": alpha_coverage,
         "notes": [
             "Metrics are diagnostic and do not prove visual fidelity or editability.",
             "The reference raster was used only for comparison and was not embedded in the SVG.",
@@ -748,21 +396,10 @@ def main() -> int:
         print(f"- RGB MAE: {mae:.4f}")
         print(f"- RGB RMSE: {rmse:.4f}")
         print(f"- Maximum channel difference: {maximum}")
-        if bounded_regions:
-            print(f"- Region diagnostics: {len(region_records)} region(s)")
-            print(f"- Machine-readable region summary: `{report['regionDiagnostics']['summary']}`")
-            for region in region_records:
-                print(f"  - `{region['name']}`: {region['dimensions']['width']} × {region['dimensions']['height']}, RGB MAE {region['metrics']['maeRgb']}, RMSE {region['metrics']['rmseRgb']}")
-        if args.check_alpha_coverage:
-            print(f"- Alpha coverage summary: `{report['outputs']['alphaCoverage']}`")
-            print(f"- Reference transparent pixels: {alpha_coverage['referenceTransparentPixelCount']}")
-            print(f"- Rendered SVG transparent pixels: {alpha_coverage['renderedSvgTransparentPixelCount']}")
-            print(f"- Unexpected transparent pixels: {alpha_coverage['unexpectedTransparentPixelCount']}")
-            print(f"- Alpha coverage status: {alpha_coverage['status']}")
         if mismatch:
             print("\nWARNING: The explicitly allowed comparison may be distorted and is not normal positional-fidelity evidence.")
         print("\nMetrics are diagnostic only; human design/editability review is still required.")
-    return 2 if alpha_coverage["automaticReadinessBlocked"] else 0
+    return 0
 
 
 if __name__ == "__main__":

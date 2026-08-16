@@ -1,28 +1,10 @@
 # Changelog
 
-All notable public changes to Clean Vector Reconstruction will be documented here.
-
 ## Unreleased
 
-### Added
+### Changed
 
-- Clean semantic raster-to-SVG reconstruction workflow
-- `geometric-flat` and `clean-flat` reconstruction modes
-- Layered and plain SVG outputs
-- SVG integrity and resource auditing
-- Semantic object-family completeness checks
-- Spatial landmark / relation / plane / contour validation
-- Alpha coverage and transparency-gap checks
-- Reference-grounded boundary comparison
-- Region-level boundary diagnostics
-- Bounded correction workflow
-- Anti-gaming safeguards for boundary metrics
-- Illustrator-ready reconstruction criterion
-- English and Simplified Chinese README files
-- MIT License for project-authored software and documentation
-- Geometric Harvest as the first curated public example
-
-### Notes
-
-- Example visual assets may use rights terms separate from the repository MIT License. See each example's `notes.md`.
-- Additional public examples will be added only after publication and redistribution rights are confirmed.
+- Aligned the README and supporting documentation with the current public reconstruction workflow.
+- Added five representative visual examples covering geometric colour blocks, still life, a winter street, a kitchen interior, and a repeated shelf system.
+- Updated the Geometric Harvest reconstruction and preview using the approved current reconstruction artifacts.
+- Clarified the separate rights and provenance treatment of example visual assets.

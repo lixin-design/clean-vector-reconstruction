@@ -26,7 +26,6 @@ DIMENSION = re.compile(
     re.IGNORECASE,
 )
 RASTER_SUFFIX = re.compile(r"\.(?:png|jpe?g)(?:[?#].*)?$", re.IGNORECASE)
-GRADIENT_URL = re.compile(r"url\(\s*['\"]?\s*#([^)'\"\s]+)\s*['\"]?\s*\)", re.IGNORECASE)
 
 
 def local(tag: str) -> str:
@@ -64,10 +63,6 @@ def inherited_value(element: ET.Element, key: str, parents: dict[ET.Element, ET.
             return styled[key]
         current = parents.get(current)
     return None
-
-
-def gradient_references(value: str | None) -> set[str]:
-    return {match.group(1) for match in GRADIENT_URL.finditer(value or "")}
 
 
 def floats(value: str | None) -> list[float]:
@@ -171,94 +166,6 @@ def analyze_canvas(root: ET.Element) -> tuple[dict[str, object], list[dict[str, 
     }, warnings
 
 
-def opacity_value(value: str | None, default: float = 1.0) -> float:
-    if value is None or not value.strip():
-        return default
-    stripped = value.strip()
-    try:
-        parsed = float(stripped[:-1]) / 100.0 if stripped.endswith("%") else float(stripped)
-    except ValueError:
-        return 0.0
-    return parsed if math.isfinite(parsed) else 0.0
-
-
-def paint_is_opaque(element: ET.Element, parents: dict[ET.Element, ET.Element]) -> bool:
-    fill = (inherited_value(element, "fill", parents) or "black").strip().lower()
-    if fill in {"none", "transparent"}:
-        return False
-    if opacity_value(inherited_value(element, "opacity", parents)) < 1.0:
-        return False
-    if opacity_value(inherited_value(element, "fill-opacity", parents)) < 1.0:
-        return False
-    if re.fullmatch(r"#[0-9a-f]{8}", fill) and fill[-2:] != "ff":
-        return False
-    rgba = re.fullmatch(r"rgba\([^,]+,[^,]+,[^,]+,\s*([^)]+)\)", fill)
-    return not rgba or opacity_value(rgba.group(1)) >= 1.0
-
-
-def structural_coverage_audit(
-    root: ET.Element,
-    elements: list[ET.Element],
-    parents: dict[ET.Element, ET.Element],
-    canvas: dict[str, object],
-    transparency_intent: str,
-) -> dict[str, object]:
-    bounds: tuple[float, float, float, float] | None = None
-    raw_viewbox = root.get("viewBox")
-    if raw_viewbox:
-        values = floats(raw_viewbox)
-        if len(values) == 4 and values[2] > 0 and values[3] > 0:
-            bounds = (values[0], values[1], values[2], values[3])
-    if bounds is None:
-        width, _ = parse_dimension(root.get("width"))
-        height, _ = parse_dimension(root.get("height"))
-        if width is not None and height is not None:
-            bounds = (0.0, 0.0, width, height)
-
-    candidates: list[dict[str, object]] = []
-    if bounds is not None:
-        canvas_x, canvas_y, canvas_width, canvas_height = bounds
-        canvas_right, canvas_bottom = canvas_x + canvas_width, canvas_y + canvas_height
-        for index, element in enumerate(elements):
-            if local(element.tag) != "rect" or element.get("transform"):
-                continue
-            x = first_number(element.get("x")) or 0.0
-            y = first_number(element.get("y")) or 0.0
-            width = first_number(element.get("width"))
-            height = first_number(element.get("height"))
-            if width is None or height is None:
-                continue
-            if x <= canvas_x and y <= canvas_y and x + width >= canvas_right and y + height >= canvas_bottom:
-                candidates.append({
-                    "id": element.get("id") or f"rect-{index}",
-                    "tag": "rect",
-                    "opaque": paint_is_opaque(element, parents),
-                })
-
-    opaque_candidates = [item for item in candidates if item["opaque"]]
-    clip_count = sum(1 for element in elements if local(element.tag) == "clipPath")
-    mask_count = sum(1 for element in elements if local(element.tag) == "mask")
-    return {
-        "canvasReliablyMeasurable": bool(canvas["reliablyMeasurable"]),
-        "fullCanvasBackgroundObjectExists": bool(candidates),
-        "fullCanvasBackgroundOpaque": bool(opaque_candidates),
-        "fullCanvasBackgroundCandidates": candidates,
-        "clipPathCount": clip_count,
-        "maskCount": mask_count,
-        "clippingOrMasksMayExposeCanvas": bool(clip_count or mask_count),
-        "obviousFullCanvasHoles": "not-provable-from-svg-structure",
-        "transparencyIntent": transparency_intent,
-        "transparencyIntentDeclared": transparency_intent != "unknown",
-        "renderedAlphaRequired": True,
-        "structuralCoverageProven": False,
-        "notes": [
-            "Only an untransformed rect that obviously spans the measurable canvas is reported as a structural background candidate.",
-            "SVG structure cannot prove perfect coverage or distinguish every intentional and accidental hole.",
-            "Use rendered alpha evidence from render_compare.py as the coverage source of truth.",
-        ],
-    }
-
-
 def path_bbox_heuristic(path_d: str) -> tuple[float, float] | None:
     values = floats(path_d)
     if len(values) < 4:
@@ -297,31 +204,13 @@ def safe_href(value: str, category: str, path_mode: str) -> str:
     return safe_base + (marker + fragment if marker else "")
 
 
-def audit(
-    path: Path,
-    shown_path: str,
-    path_mode: str,
-    tiny_area: float,
-    short_length: float,
-    path_warning: int,
-    transparency_intent: str = "unknown",
-) -> dict[str, object]:
+def audit(path: Path, shown_path: str, path_mode: str, tiny_area: float, short_length: float, path_warning: int) -> dict[str, object]:
     text = path.read_text(encoding="utf-8")
     root = ET.fromstring(text)
     canvas, warnings = analyze_canvas(root)
     elements = list(root.iter())
     parents = {child: parent for parent in elements for child in parent}
-    coverage_audit = structural_coverage_audit(
-        root, elements, parents, canvas, transparency_intent
-    )
     counts = Counter(local(element.tag) for element in elements)
-    gradient_elements = [element for element in elements if local(element.tag) in {"linearGradient", "radialGradient"}]
-    gradient_ids = [element.get("id") for element in gradient_elements if element.get("id")]
-    gradient_id_counts = Counter(gradient_ids)
-    defined_gradient_ids = set(gradient_ids)
-    duplicate_gradient_ids = sorted(identifier for identifier, count in gradient_id_counts.items() if count > 1)
-    definitions_without_id = sum(1 for element in gradient_elements if not element.get("id"))
-    gradient_object_ids: dict[str, set[str]] = {}
     duplicates: Counter[tuple[str, str, str, str]] = Counter()
     tiny: list[str] = []
     short: list[str] = []
@@ -345,13 +234,6 @@ def audit(
                     "id": ident,
                     "target": safe_href(attr_value, category, path_mode),
                 })
-
-        if tag in DRAWABLE:
-            object_gradient_ids = set()
-            for property_name in ("fill", "stroke"):
-                object_gradient_ids.update(gradient_references(inherited_value(element, property_name, parents)))
-            for gradient_id in object_gradient_ids:
-                gradient_object_ids.setdefault(gradient_id, set()).add(ident)
 
         if tag == "path":
             d = (element.get("d") or "").strip()
@@ -411,18 +293,6 @@ def audit(
         warnings.append({"code": "embedded-data", "message": f"{len(references['embeddedData'])} embedded data reference(s) detected"})
     if counts["foreignObject"]:
         warnings.append({"code": "foreign-object", "message": f"{counts['foreignObject']} foreignObject element(s) detected"})
-    referenced_gradient_ids = set(gradient_object_ids)
-    used_gradient_ids = sorted(referenced_gradient_ids & defined_gradient_ids)
-    unused_gradient_ids = sorted(defined_gradient_ids - referenced_gradient_ids)
-    missing_gradient_ids = sorted(referenced_gradient_ids - defined_gradient_ids)
-    if definitions_without_id:
-        warnings.append({"code": "gradient-without-id", "message": f"{definitions_without_id} gradient definition(s) have no ID"})
-    if duplicate_gradient_ids:
-        warnings.append({"code": "duplicate-gradient-id", "message": "duplicate gradient ID(s): " + ", ".join(duplicate_gradient_ids)})
-    if unused_gradient_ids:
-        warnings.append({"code": "unused-gradient", "message": "defined but unused gradient ID(s): " + ", ".join(unused_gradient_ids)})
-    if missing_gradient_ids:
-        warnings.append({"code": "missing-gradient-reference", "message": "object fill/stroke references missing gradient ID(s): " + ", ".join(missing_gradient_ids)})
     for code, items, label in (
         ("unclosed-fill-heuristic", unclosed, "possibly unclosed filled path candidates"),
         ("degenerate-heuristic", degenerate, "degenerate object candidates"),
@@ -439,26 +309,6 @@ def audit(
         ident = group.get("id") or f"unnamed-group-{index}"
         group_sizes.append((ident, sum(1 for child in group.iter() if local(child.tag) in DRAWABLE)))
 
-    gradient_audit = {
-        "definedLinearGradientCount": counts["linearGradient"],
-        "definedRadialGradientCount": counts["radialGradient"],
-        "definedGradientIds": sorted(defined_gradient_ids),
-        "definitionsWithoutId": definitions_without_id,
-        "referencedGradientIds": sorted(referenced_gradient_ids),
-        "usedGradientCount": len(used_gradient_ids),
-        "usedGradientIds": used_gradient_ids,
-        "unusedGradientIds": unused_gradient_ids,
-        "missingGradientReferences": missing_gradient_ids,
-        "duplicateGradientIds": duplicate_gradient_ids,
-        "objectsUsingEachGradient": {
-            gradient_id: {
-                "count": len(object_ids),
-                "objectIds": sorted(object_ids),
-            }
-            for gradient_id, object_ids in sorted(gradient_object_ids.items())
-        },
-    }
-
     return {
         "file": shown_path,
         "pathMode": path_mode,
@@ -466,8 +316,6 @@ def audit(
         "rootElement": local(root.tag),
         "canvas": canvas,
         "counts": {name: counts[name] for name in COUNTED},
-        "gradientAudit": gradient_audit,
-        "coverageAudit": coverage_audit,
         "totalDrawableObjects": sum(counts[name] for name in DRAWABLE),
         "rasterTerms": raster_terms,
         "resourceReferences": references,
@@ -483,8 +331,6 @@ def audit(
             "A filled open SVG path may render as visually closed; an open-path warning does not prove a defect.",
             "Numeric coordinate pairing is not a complete Bezier geometry engine and cannot prove geometric quality.",
             "Automatic auditing does not prove Illustrator editability, design quality, or a passing human grade.",
-            "Actual gradient use does not prove visual fidelity.",
-            "Human review must compare gradient placement, direction, colors, stops, transition extent, and opacity with the reference.",
         ],
     }
 
@@ -494,8 +340,6 @@ def markdown(results: list[dict[str, object]]) -> str:
     for result in results:
         canvas = result["canvas"]
         references = result["resourceReferences"]
-        gradients = result["gradientAudit"]
-        coverage = result["coverageAudit"]
         lines += [
             f"## `{result['file']}`", "",
             f"- Path display mode: `{result['pathMode']}`",
@@ -513,33 +357,6 @@ def markdown(results: list[dict[str, object]]) -> str:
             "", "| Element | Count |", "|---|---:|",
         ]
         lines.extend(f"| `{name}` | {count} |" for name, count in result["counts"].items())
-        lines += [
-            "", "### Gradient usage audit", "",
-            f"- Defined linear gradients: {gradients['definedLinearGradientCount']}",
-            f"- Defined radial gradients: {gradients['definedRadialGradientCount']}",
-            f"- Defined gradient IDs: {', '.join(f'`{item}`' for item in gradients['definedGradientIds']) or 'none'}",
-            f"- Gradient IDs referenced by object fill/stroke: {', '.join(f'`{item}`' for item in gradients['referencedGradientIds']) or 'none'}",
-            f"- Used gradient count: {gradients['usedGradientCount']}",
-            f"- Unused gradient IDs: {', '.join(f'`{item}`' for item in gradients['unusedGradientIds']) or 'none'}",
-            f"- Missing gradient references: {', '.join(f'`{item}`' for item in gradients['missingGradientReferences']) or 'none'}",
-            f"- Duplicate gradient IDs: {', '.join(f'`{item}`' for item in gradients['duplicateGradientIds']) or 'none'}",
-            "", "| Gradient ID | Object count | Object IDs |", "|---|---:|---|",
-        ]
-        if gradients["objectsUsingEachGradient"]:
-            for gradient_id, usage in gradients["objectsUsingEachGradient"].items():
-                lines.append(f"| `{gradient_id}` | {usage['count']} | {', '.join(f'`{item}`' for item in usage['objectIds'])} |")
-        else:
-            lines.append("| — | 0 | — |")
-        lines += [
-            "", "### Structural coverage audit", "",
-            f"- Full-canvas background candidate exists: {'yes' if coverage['fullCanvasBackgroundObjectExists'] else 'no'}",
-            f"- Opaque full-canvas background candidate exists: {'yes' if coverage['fullCanvasBackgroundOpaque'] else 'no'}",
-            f"- clipPath count: {coverage['clipPathCount']}",
-            f"- mask count: {coverage['maskCount']}",
-            f"- Clipping or masks may expose canvas: {'yes' if coverage['clippingOrMasksMayExposeCanvas'] else 'no'}",
-            f"- Case-declared transparency intent: `{coverage['transparencyIntent']}`",
-            "- Structural proof of complete coverage: no; rendered alpha evidence is required.",
-        ]
         lines += ["", "### Warnings", ""]
         if result["warnings"]:
             lines.extend(f"- **{item['code']}**: {item['message']}" for item in result["warnings"])
@@ -557,12 +374,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tiny-area", type=float, default=4.0, help="Advisory tiny-object area threshold.")
     parser.add_argument("--short-length", type=float, default=2.0, help="Advisory short-object length threshold.")
     parser.add_argument("--path-warning", type=int, default=300, help="Advisory path-count threshold.")
-    parser.add_argument(
-        "--transparency-intent",
-        choices=["opaque", "intentional", "unknown"],
-        default="unknown",
-        help="Case-authored transparency intent; structural analysis does not infer intent.",
-    )
     parser.add_argument("--fail-on-warning", action="store_true", help="Return exit code 2 if warnings exist.")
     return parser
 
@@ -576,17 +387,7 @@ def main() -> int:
         if not svg.is_file():
             raise FileNotFoundError(f"SVG not found: {shown}")
         actual = svg.resolve()
-        results.append(
-            audit(
-                actual,
-                shown,
-                args.path_mode,
-                args.tiny_area,
-                args.short_length,
-                args.path_warning,
-                args.transparency_intent,
-            )
-        )
+        results.append(audit(actual, shown, args.path_mode, args.tiny_area, args.short_length, args.path_warning))
     print(json.dumps(results, indent=2, ensure_ascii=False) if args.format == "json" else markdown(results))
     return 2 if args.fail_on_warning and any(result["warnings"] for result in results) else 0
 

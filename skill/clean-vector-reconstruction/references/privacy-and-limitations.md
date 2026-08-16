@@ -29,8 +29,6 @@ Keep private materials out of reusable skills, public examples, and release fold
 
 Convert only permitted evidence into abstract rules such as primary subject, base blocks, repeated elements, gradients, shared boundaries, key landmarks, and validation gates.
 
-When reference publication permission is uncertain, public-facing completeness summaries must use generic object-family terms. Do not expose identifying nouns, private labels, or artwork-specific inventory names; retain detailed case-authored inventories only inside their authorized private workspace.
-
 ## Public examples
 
 Publish an example only when rights and intended publication are explicit. Recheck references, previews, overlays, difference images, reports, metadata, scripts, and paths because any of them may disclose protected content.
@@ -38,8 +36,6 @@ Publish an example only when rights and intended publication are explicit. Reche
 Generated Markdown and JSON reports can leak usernames, user-specific local folders or absolute local paths, executable paths, and private directory names when absolute paths are recorded. Use each script's `--path-mode relative` or `--path-mode basename` for material that may be shared. Use `absolute` only for explicitly private debugging, and inspect the rendered report before committing it to GitHub or another public location. Path-display settings affect reporting only; scripts may still use real paths internally.
 
 Treat GitHub publication as a separate authorized task. Do not create release files during reconstruction, protocol revision, or Skill drafting unless explicitly requested.
-
-Local region crops, preview crops, overlays, difference crops, region summaries, and other diagnostic images inherit the reference image's privacy and publication status. Local processing permission does not grant permission to publish them. Do not place them in reusable or public locations without explicit publication permission.
 
 ## Supported scope
 
