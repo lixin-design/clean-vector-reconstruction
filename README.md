@@ -5,21 +5,23 @@
 
 # Clean Vector Reconstruction
 
-Clean Vector Reconstruction is a small workflow for rebuilding flat and semi-flat raster illustrations as editable SVGs. It is most at home with clear colour regions, structured geometry, and repeated visual elements.
+Rebuild raster illustrations as clean, editable SVGs, ready for further work in Adobe Illustrator.
 
-The aim is not to trace every pixel. It is to keep the drawing's important relationships in a form that can still be opened, understood, and adjusted in Adobe Illustrator.
+Clean Vector Reconstruction is a Skill for AI agents working with flat, semi-flat, and geometric colour-block illustrations. It reads the reference image, works out the composition and individual objects, then rebuilds the artwork with vector shapes.
 
-## What it is for
+The workflow considers both visual fidelity and what happens when you open the file to edit it. Main objects stay individually selectable, colours and gradients remain adjustable, and paths are kept simple enough to work with.
 
-References become semantic vector geometry: native primitives where they make sense, concise Bézier paths where they do not, and ordinary SVG fills, strokes, gradients, and groups throughout. Finished SVGs do not contain embedded or linked raster images.
+## What images work well
 
-Colour-block illustrations, still lifes, structured interiors, architectural scenes, and repeated systems are natural places to start. Complexity alone is not the dividing line. A busy scene can still be a good fit when its main parts separate cleanly, its boundaries are legible, and its spatial scaffold or repeated structure is stable.
+Illustrations with clear colour boundaries and recognisable object structures are a good place to start. These include geometric artwork, still lifes, and scenes built around architecture, furniture, or shelving.
 
-This is not a general-purpose vectorizer or a tool for exact pixel tracing. Images that depend on a particular organic contour—such as articulated people, hands, hair, complex animals, heavy occlusion, or painterly texture—need more caution and often more drawing.
+A busy scene can work well too. If the objects have readable shapes and clear overlaps, the scene can be broken down and rebuilt piece by piece. Repeated elements can share consistent dimensions and spacing.
 
-## Examples
+Photography, heavy brushwork, and dense textures fall outside the Skill's main scope. Subjects that depend on subtle contours, such as fingers, hair, or complex animal poses, also tend to need more manual adjustment.
 
-These are representative examples, not accuracy claims. Each pair shows the source image beside an editable SVG reconstruction; the note below calls out the part of the drawing that made the example useful.
+## See the results
+
+These five examples show the reference images alongside their reconstructions.
 
 ### Geometric Harvest
 
@@ -27,7 +29,7 @@ These are representative examples, not accuracy claims. Each pair shows the sour
 | --- | --- |
 | ![Geometric Harvest reference](examples/geometric-harvest/reference.png) | [![Geometric Harvest reconstruction](examples/geometric-harvest/preview.png)](examples/geometric-harvest/reconstruction-layered.svg) |
 
-Geometric colour blocks, simple gradients, and shared edges make the underlying construction easy to follow.
+Broad colour blocks and a few gradients make this a good fit for reconstruction with simple geometric shapes.
 
 ### Still Life
 
@@ -35,7 +37,7 @@ Geometric colour blocks, simple gradients, and shared edges make the underlying 
 | --- | --- |
 | ![Still Life reference](examples/still-life/reference.png) | [![Still Life reconstruction](examples/still-life/preview.png)](examples/still-life/reconstruction-layered.svg) |
 
-Separate objects—fruit, vessel, leaves, and table—leave room for a few controlled organic curves without losing the structure of the scene.
+The fruit, vessel, leaves, and table are treated as separate objects. Curves retain the individual shapes of the fruit and leaves, making them easy to adjust later.
 
 ### Winter Street
 
@@ -43,7 +45,7 @@ Separate objects—fruit, vessel, leaves, and table—leave room for a few contr
 | --- | --- |
 | ![Winter Street reference](examples/winter-street/reference.png) | [![Winter Street reconstruction](examples/winter-street/preview.png)](examples/winter-street/reconstruction-layered.svg) |
 
-Although the street contains many parts, the buildings, roadway, lights, and snow layers can still be rebuilt as a readable set of structured objects.
+The buildings and roadway are positioned first, followed by lighting and snow. Even with many elements, the scene can be organised into clear groups that follow its structure.
 
 ### Kitchen Interior
 
@@ -51,7 +53,7 @@ Although the street contains many parts, the buildings, roadway, lights, and sno
 | --- | --- |
 | ![Kitchen Interior reference](examples/kitchen-interior/reference.png) | [![Kitchen Interior reconstruction](examples/kitchen-interior/preview.png)](examples/kitchen-interior/reconstruction-layered.svg) |
 
-Cabinets, shelving, appliances, and small repeated items give the room a stable scaffold before the local details are added.
+Repeated cabinet doors and vessels can be handled together to keep proportions and spacing consistent.
 
 ### Market Shelf
 
@@ -59,26 +61,43 @@ Cabinets, shelving, appliances, and small repeated items give the room a stable 
 | --- | --- |
 | ![Market Shelf reference](examples/market-shelf/reference.png) | [![Market Shelf reconstruction](examples/market-shelf/preview.png)](examples/market-shelf/reconstruction-layered.svg) |
 
-Shelves, containers, product groups, and crates show how repeated elements can be organized as a system rather than drawn as unrelated fragments.
+The shelving comes first, then the products, containers, and crates on each level. Repeated objects share a common construction while keeping the local variations in the reference.
 
 ## How it works
 
-Begin with the canvas, large regions, spacing, overlaps, and the main geometry. Meaningful objects come next; small details wait until the composition holds together.
+Start with the whole image, build the objects, then add the details.
 
-The included Skill has two practical modes. `geometric-flat` suits aligned blocks, repeated units, regular geometry, and broad colour regions. `clean-flat` is for controlled free curves and mixed structured scenes. The output is then checked for sound SVG structure and for the absence of raster placement before visual review.
+Reconstruction begins with the canvas proportions and large colour regions. The main objects are positioned with their spacing and overlaps in place. Once the composition is established, the workflow refines individual contours and adds gradients, strokes, and smaller details.
 
-## Using the Skill
+Regular shapes use native SVG rectangles, circles, and ellipses wherever practical. Freeform contours use concise Bézier paths. Gradients are native SVG gradients, and main objects are grouped semantically. The finished artwork consists of vector objects, with no embedded or linked raster images.
 
-Copy `skill/clean-vector-reconstruction` to the Skill directory used by your project, then provide a reference image, output location, intended editor, and any publication constraints. The Skill produces layered and plain SVGs, a preview, and review files. A human still decides when the drawing is ready.
+The Skill selects a reconstruction mode based on the reference.
 
-## Output and review
+- `geometric-flat` suits regular geometry, broad colour blocks, and aligned or repeating elements.
+- `clean-flat` suits objects with freeform curves, including scenes that mix geometric and irregular shapes.
 
-Layered SVGs retain useful groups for editing. Plain SVGs carry the same artwork in a simpler form for compatibility. Both use native SVG geometry and resources rather than placed raster content.
+## How to use it
 
-Automated checks are good at finding structural issues, but they cannot decide whether a drawing feels right or whether its remaining work is a local Illustrator edit rather than a redraw. That calls for visual review.
+Copy the repository's `skill/clean-vector-reconstruction` folder into your AI agent's Skill directory, then provide a reference image and an output location. Include your intended editor, size requirements, or any restrictions on using the source material.
 
-More detail is in [Methodology](docs/methodology.md), [Validation](docs/validation.md), and [Limitations](docs/limitations.md).
+A request can be as simple as this.
+
+> Use clean-vector-reconstruction to rebuild this illustration as an editable SVG and save it to the specified folder. I'll continue editing in Adobe Illustrator, so keep the main objects grouped and generate a preview.
+
+## What you get
+
+The main outputs are a layered SVG, a plain SVG, and a preview image.
+
+The layered SVG keeps useful editing groups for further work in Illustrator. The plain SVG uses a simpler structure for use in other SVG tools. Both versions contain the same artwork.
+
+The workflow also saves an overlay, a difference image, and check reports to help you compare the result with the reference.
+
+Before delivery, it checks the SVG structure, canvas dimensions, and raster references. Start with the preview and comparison images to review the composition, contours, and colours. Then open the SVG in Illustrator, check how selection and editing feel, and make the final adjustments for your intended use.
+
+For more detail, see [Methodology](docs/methodology.md), [Validation](docs/validation.md), and [Limitations](docs/limitations.md).
 
 ## License and example assets
 
-Project-authored software and documentation are released under the [MIT License](LICENSE). Visual example assets have their own provenance notes; read the note supplied with an example before copying, modifying, or redistributing it.
+The project's software and documentation are released under the [MIT License](LICENSE).
+
+See each example's notes for image sources and usage terms. Follow the relevant permissions when using those assets.
